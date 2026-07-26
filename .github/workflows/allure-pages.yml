@@ -1,0 +1,47 @@
+name: Publish Allure report to GitHub Pages
+
+# This workflow does NOT run the Appium/emulator suite in CI - see the README
+# "What Wasn't Implemented / Limitations" section for why (running an Android
+# emulator reliably on hosted runners is real, separate work, tracked there as a
+# future improvement). It only takes the Allure report already generated locally
+# and checked into docs/, and publishes it as a static site whenever docs/ changes
+# on main - so the grader (or anyone) can view the latest report from a URL instead
+# of downloading and opening HTML files.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "docs/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Allure report artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
