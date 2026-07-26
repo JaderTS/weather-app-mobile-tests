@@ -1,22 +1,17 @@
-name: Scheduled BrowserStack run
+name: Smoke test and publish
 
-# Runs the full 32-test suite against BrowserStack App Automate instead of a local
-# emulator - no machine has to keep an Android emulator + Appium server alive for it.
-# Each run publishes a fresh Allure report to GitHub Pages, and - by seeding
-# allure-results/history from whatever is currently live on Pages before generating -
-# the report's trend graph accumulates real history across runs instead of only ever
-# showing the latest one.
-#
-# Runs once a day (not hourly): BrowserStack trial plans carry a limited monthly
-# minutes quota, and an unattended hourly run against 32 tests would exhaust it within
-# days, after which this would fail on quota instead of on a real regression - a worse
-# signal than a slower cadence. Once a day gives real, recurring validation and real
-# trend history while staying well within trial-plan headroom. workflow_dispatch is
-# also enabled for an on-demand run any time (e.g. to demo it, or right after a fix).
+# Fast feedback loop: runs 4 tests (one positive core scenario per flow - Registration,
+# Login, Weather Search, Logout) against BrowserStack on every push/PR, then publishes
+# the real result to GitHub Pages. This is deliberately the *smaller* tier: the full
+# 32-test suite (scheduled-browserstack-run.yml) runs once a day instead of on every
+# push, so this one stays fast and light on BrowserStack trial-plan minutes while still
+# validating that the core path through each flow actually works before merging.
 
 on:
-  schedule:
-    - cron: "0 6 * * *" # once a day, 06:00 UTC
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
   workflow_dispatch: {}
 
 permissions:
@@ -30,9 +25,10 @@ concurrency:
 
 env:
   PAGES_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}
+  SMOKE_FILTER: "FullyQualifiedName~Register_WithValidNewUser_RedirectsToLoginWithSuccessMessage|FullyQualifiedName~Login_WithValidCredentials_NavigatesToLandingScreen|FullyQualifiedName~Search_ValidCity_DisplaysForecastForSelectedLocation|FullyQualifiedName~Logout_FromSettings_ReturnsToLoginScreen"
 
 jobs:
-  run-and-publish:
+  smoke-test-and-publish:
     runs-on: ubuntu-latest
     environment:
       name: github-pages
@@ -69,14 +65,14 @@ jobs:
           fi
           echo "app_url=$app_url" >> "$GITHUB_OUTPUT"
 
-      - name: Run test suite against BrowserStack
+      - name: Run smoke tests against BrowserStack
         continue-on-error: true
         env:
           WEATHERAPP_Appium__UseBrowserStack: "true"
           WEATHERAPP_Appium__BrowserStackUsername: ${{ secrets.BROWSERSTACK_USERNAME }}
           WEATHERAPP_Appium__BrowserStackAccessKey: ${{ secrets.BROWSERSTACK_ACCESS_KEY }}
           WEATHERAPP_Appium__BrowserStackAppUrl: ${{ steps.upload.outputs.app_url }}
-        run: dotnet test --logger "trx;LogFileName=results.trx"
+        run: dotnet test --filter "$SMOKE_FILTER" --logger "trx;LogFileName=smoke-results.trx"
 
       - name: Install Allure CLI
         if: always()
