@@ -26,6 +26,12 @@ public static class AppiumServerManager
     public static void StartIfConfigured()
     {
         var settings = ConfigurationProvider.Settings.Appium;
+        if (settings.UseBrowserStack)
+        {
+            Log.Information("Appium:UseBrowserStack is true; connecting to BrowserStack's hub, no local server to start.");
+            return;
+        }
+
         if (!settings.ManageServerLifecycle)
         {
             Log.Information("Appium server lifecycle is externally managed; skipping auto-start.");

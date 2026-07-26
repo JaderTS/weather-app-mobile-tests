@@ -2,7 +2,13 @@
   "_comment": "Copy this file to appsettings.local.json (git-ignored) to override any value locally without touching appsettings.json. Common overrides below.",
 
   "Appium": {
-    "DeviceName": "Pixel_8_API_35"
+    "DeviceName": "Pixel_8_API_35",
+
+    "_browserStackComment": "Only needed to run locally against BrowserStack instead of the emulator (CI sets these via secrets/env vars, not this file - see README).",
+    "UseBrowserStack": false,
+    "BrowserStackUsername": "put-your-browserstack-username-here",
+    "BrowserStackAccessKey": "put-your-browserstack-access-key-here",
+    "BrowserStackAppUrl": "bs://put-the-uploaded-app-hash-here"
   },
 
   "TestUser": {
