@@ -1,0 +1,107 @@
+name: Scheduled BrowserStack run
+
+# Runs the full 32-test suite once an hour against BrowserStack App Automate instead
+# of a local emulator - this is what makes an hourly recurring run practical: no
+# machine has to keep an Android emulator + Appium server alive indefinitely for it.
+# Each run publishes a fresh Allure report to GitHub Pages, and - by seeding
+# allure-results/history from whatever is currently live on Pages before generating -
+# the report's trend graph accumulates real history across runs instead of only ever
+# showing the latest one.
+
+on:
+  schedule:
+    - cron: "0 * * * *" # every hour, on the hour (UTC)
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+env:
+  PAGES_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}
+
+jobs:
+  run-and-publish:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Setup Java (required by the Allure CLI)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Upload APK to BrowserStack
+        id: upload
+        env:
+          BROWSERSTACK_USERNAME: ${{ secrets.BROWSERSTACK_USERNAME }}
+          BROWSERSTACK_ACCESS_KEY: ${{ secrets.BROWSERSTACK_ACCESS_KEY }}
+        run: |
+          response=$(curl -sS -u "$BROWSERSTACK_USERNAME:$BROWSERSTACK_ACCESS_KEY" \
+            -X POST "https://api-cloud.browserstack.com/app-automate/upload" \
+            -F "file=@apps/weather-app.apk")
+          echo "$response"
+          app_url=$(echo "$response" | jq -r '.app_url')
+          if [ -z "$app_url" ] || [ "$app_url" = "null" ]; then
+            echo "BrowserStack upload did not return an app_url - failing fast." >&2
+            exit 1
+          fi
+          echo "app_url=$app_url" >> "$GITHUB_OUTPUT"
+
+      - name: Run test suite against BrowserStack
+        continue-on-error: true
+        env:
+          WEATHERAPP_Appium__UseBrowserStack: "true"
+          WEATHERAPP_Appium__BrowserStackUsername: ${{ secrets.BROWSERSTACK_USERNAME }}
+          WEATHERAPP_Appium__BrowserStackAccessKey: ${{ secrets.BROWSERSTACK_ACCESS_KEY }}
+          WEATHERAPP_Appium__BrowserStackAppUrl: ${{ steps.upload.outputs.app_url }}
+        run: dotnet test --logger "trx;LogFileName=results.trx"
+
+      - name: Install Allure CLI
+        if: always()
+        run: npm install -g allure-commandline
+
+      - name: Recover previous report history from the live site (best effort)
+        if: always()
+        run: |
+          mkdir -p src/WeatherApp.MobileTests/bin/Debug/net8.0/allure-results/history
+          cd src/WeatherApp.MobileTests/bin/Debug/net8.0/allure-results/history
+          for f in history.json history-trend.json categories-trend.json duration-trend.json retry-trend.json; do
+            curl -sS -f -o "$f" "$PAGES_URL/history/$f" || echo "No previous $f yet (first run) - continuing."
+          done
+
+      - name: Generate Allure report
+        if: always()
+        run: |
+          cd src/WeatherApp.MobileTests/bin/Debug/net8.0
+          allure generate allure-results --clean -o allure-report
+
+      - name: Configure Pages
+        if: always()
+        uses: actions/configure-pages@v5
+
+      - name: Upload Allure report artifact
+        if: always()
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: src/WeatherApp.MobileTests/bin/Debug/net8.0/allure-report
+
+      - name: Deploy to GitHub Pages
+        if: always()
+        id: deployment
+        uses: actions/deploy-pages@v4
