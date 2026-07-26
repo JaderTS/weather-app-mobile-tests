@@ -1,4 +1,3 @@
-using Allure.Net.Commons;
 using NUnit.Framework.Interfaces;
 using OpenQA.Selenium.Appium.Android;
 using Serilog;
@@ -14,16 +13,15 @@ namespace WeatherApp.MobileTests.Tests;
 /// failure screenshot + driver teardown + Allure result in TearDown. Fixtures inherit
 /// this instead of each re-implementing driver creation/disposal and failure handling.
 ///
-/// Allure results are written by calling Allure.Net.Commons' AllureLifecycle directly
-/// (StartTestCase/StopTestCase/WriteTestCase) rather than through the Allure.NUnit
-/// package's [AllureNUnit] action attribute. That attribute also manages a "test
-/// container" for grouping fixture-level setup/teardown, and in this exact
-/// NUnit 3.14 / NUnit3TestAdapter 4.5 / .NET 8 combination its container stack gets
-/// closed twice - once per fixture and once for the assembly's outer implicit suite -
-/// crashing the whole test host with "No container context is active" after every test
-/// had already finished. Driving AllureLifecycle's test-case API directly (no
-/// containers) writes the exact same allure-results JSON without going through that
-/// code path.
+/// Allure results are written via AllureReportWriter (Support/AllureReportWriter.cs)
+/// rather than through the Allure.NUnit package's [AllureNUnit] action attribute. That
+/// attribute also manages a "test container" for grouping fixture-level setup/teardown,
+/// and in this exact NUnit 3.14 / NUnit3TestAdapter 4.5 / .NET 8 combination its
+/// container stack gets closed twice - once per fixture and once for the assembly's
+/// outer implicit suite - crashing the whole test host with "No container context is
+/// active" after every test had already finished. Driving AllureLifecycle's test-case
+/// API directly (no containers) writes the exact same allure-results JSON without
+/// going through that code path.
 /// </summary>
 public abstract class TestBase
 {
@@ -64,20 +62,14 @@ public abstract class TestBase
             Log.Error("Test failed: {TestName} - {Message}", context.Test.Name, result.Message);
         }
 
-        var testResult = new TestResult
-        {
-            uuid = Guid.NewGuid().ToString(),
-            name = context.Test.Name,
-            fullName = context.Test.FullName,
-            historyId = context.Test.FullName,
-            status = failed ? Status.failed : Status.passed,
-            statusDetails = new StatusDetails { message = result.Message, trace = result.StackTrace },
-            start = _testStartedAtEpochMs,
-            stop = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-            labels = [Label.Suite(GetType().Name)],
-        };
-
-        AllureLifecycle.Instance.StartTestCase(testResult);
+        AllureReportWriter.StartTestCase(
+            suiteName: GetType().Name,
+            testName: context.Test.Name,
+            fullName: context.Test.FullName,
+            failed: failed,
+            failureMessage: result.Message,
+            stackTrace: result.StackTrace,
+            startedAtEpochMs: _testStartedAtEpochMs);
 
         if (failed && Driver is not null)
         {
@@ -91,8 +83,7 @@ public abstract class TestBase
             }
         }
 
-        AllureLifecycle.Instance.StopTestCase();
-        AllureLifecycle.Instance.WriteTestCase();
+        AllureReportWriter.StopAndWriteTestCase();
 
         Driver?.Quit();
         Driver?.Dispose();

@@ -71,9 +71,9 @@ public static class DriverFactory
         {
             PlatformName = settings.PlatformName,
             AutomationName = settings.AutomationName,
+            App = settings.BrowserStackAppUrl,
         };
 
-        options.AddAdditionalAppiumOption("appium:app", settings.BrowserStackAppUrl);
         options.AddAdditionalAppiumOption("bstack:options", new Dictionary<string, object>
         {
             ["userName"] = settings.BrowserStackUsername,
