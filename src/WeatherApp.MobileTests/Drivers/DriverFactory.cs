@@ -16,6 +16,16 @@ namespace WeatherApp.MobileTests.Drivers;
 /// </summary>
 public static class DriverFactory
 {
+    /// <summary>
+    /// Computed once when this type is first touched (i.e. once per `dotnet test`
+    /// process), not per session - so every test in the same run shares one BrowserStack
+    /// "build" instead of getting split across a different build per minute (each test
+    /// opens its own driver/session, and a per-call timestamp would otherwise change
+    /// build-to-build mid-run).
+    /// </summary>
+    private static readonly string BrowserStackBuildName =
+        $"Weather App Mobile Tests - {DateTimeOffset.UtcNow:yyyy-MM-dd HH:mm} UTC";
+
     public static AndroidDriver CreateAndroidDriver()
     {
         var settings = ConfigurationProvider.Settings.Appium;
@@ -81,8 +91,8 @@ public static class DriverFactory
             ["deviceName"] = settings.BrowserStackDeviceName,
             ["osVersion"] = settings.BrowserStackOsVersion,
             ["projectName"] = "Weather App Mobile Tests",
-            ["buildName"] = $"Scheduled run {DateTimeOffset.UtcNow:yyyy-MM-dd HH:mm} UTC",
-            ["sessionName"] = "Full regression suite",
+            ["buildName"] = BrowserStackBuildName,
+            ["sessionName"] = TestContext.CurrentContext?.Test?.Name ?? "Weather App test",
         });
 
         Log.Information(
