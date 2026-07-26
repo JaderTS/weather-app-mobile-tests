@@ -9,13 +9,24 @@ namespace WeatherApp.MobileTests.Drivers;
 /// Builds the AndroidDriver session from configuration. Nothing about the device,
 /// app path, or capabilities is hard-coded in a test or page object - it all flows
 /// from TestSettings so switching emulator/device or APK location is a config change,
-/// not a code change.
+/// not a code change. That includes switching targets entirely: Appium:UseBrowserStack
+/// swaps the local-emulator path below for a BrowserStack App Automate session, used
+/// by the scheduled CI workflow so a recurring run doesn't need a local emulator kept
+/// alive indefinitely.
 /// </summary>
 public static class DriverFactory
 {
     public static AndroidDriver CreateAndroidDriver()
     {
         var settings = ConfigurationProvider.Settings.Appium;
+
+        return settings.UseBrowserStack
+            ? CreateBrowserStackDriver(settings)
+            : CreateLocalDriver(settings);
+    }
+
+    private static AndroidDriver CreateLocalDriver(AppiumSettings settings)
+    {
         var apkPath = ResolveAppPath(settings.AppPath);
 
         var options = new AppiumOptions
@@ -35,10 +46,50 @@ public static class DriverFactory
         options.AddAdditionalAppiumOption("appium:autoGrantPermissions", settings.AutoGrantPermissions);
 
         Log.Information(
-            "Creating AndroidDriver session (device={Device}, app={App}, server={Server})",
+            "Creating local AndroidDriver session (device={Device}, app={App}, server={Server})",
             settings.DeviceName, apkPath, settings.ServerUrl);
 
         var driver = new AndroidDriver(new Uri(settings.ServerUrl), options, TimeSpan.FromMinutes(3));
+        driver.Manage().Timeouts().ImplicitWait = TimeSpan.Zero;
+
+        return driver;
+    }
+
+    private static AndroidDriver CreateBrowserStackDriver(AppiumSettings settings)
+    {
+        if (string.IsNullOrWhiteSpace(settings.BrowserStackUsername) ||
+            string.IsNullOrWhiteSpace(settings.BrowserStackAccessKey) ||
+            string.IsNullOrWhiteSpace(settings.BrowserStackAppUrl))
+        {
+            throw new InvalidOperationException(
+                "Appium:UseBrowserStack is true but BrowserStackUsername/BrowserStackAccessKey/BrowserStackAppUrl " +
+                "are not set. These must come from environment variables (WEATHERAPP_Appium__BrowserStack...), " +
+                "never appsettings.json.");
+        }
+
+        var options = new AppiumOptions
+        {
+            PlatformName = settings.PlatformName,
+            AutomationName = settings.AutomationName,
+        };
+
+        options.AddAdditionalAppiumOption("appium:app", settings.BrowserStackAppUrl);
+        options.AddAdditionalAppiumOption("bstack:options", new Dictionary<string, object>
+        {
+            ["userName"] = settings.BrowserStackUsername,
+            ["accessKey"] = settings.BrowserStackAccessKey,
+            ["deviceName"] = settings.BrowserStackDeviceName,
+            ["osVersion"] = settings.BrowserStackOsVersion,
+            ["projectName"] = "Weather App Mobile Tests",
+            ["buildName"] = $"Scheduled run {DateTimeOffset.UtcNow:yyyy-MM-dd HH:mm} UTC",
+            ["sessionName"] = "Full regression suite",
+        });
+
+        Log.Information(
+            "Creating BrowserStack AndroidDriver session (device={Device}, osVersion={OsVersion})",
+            settings.BrowserStackDeviceName, settings.BrowserStackOsVersion);
+
+        var driver = new AndroidDriver(new Uri(settings.BrowserStackServerUrl), options, TimeSpan.FromMinutes(3));
         driver.Manage().Timeouts().ImplicitWait = TimeSpan.Zero;
 
         return driver;
