@@ -1,0 +1,11 @@
+{
+  "_comment": "Copy this file to appsettings.local.json (git-ignored) to override any value locally without touching appsettings.json. Common overrides below.",
+
+  "Appium": {
+    "DeviceName": "Pixel_8_API_35"
+  },
+
+  "TestUser": {
+    "Password": "put-a-local-only-password-here"
+  }
+}

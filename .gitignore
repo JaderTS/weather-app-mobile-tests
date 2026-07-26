@@ -1,0 +1,24 @@
+# Build output
+bin/
+obj/
+
+# Test results
+TestResults/
+*.trx
+
+# Allure
+allure-results/
+allure-report/
+
+# Logs and screenshots produced by test runs
+logs/
+Screenshots/
+
+# Local secrets / machine-specific overrides - never commit this
+appsettings.local.json
+
+# OS/editor cruft
+.DS_Store
+.vs/
+.idea/
+*.user
