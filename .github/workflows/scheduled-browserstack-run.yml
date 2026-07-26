@@ -1,16 +1,22 @@
 name: Scheduled BrowserStack run
 
-# Runs the full 32-test suite once an hour against BrowserStack App Automate instead
-# of a local emulator - this is what makes an hourly recurring run practical: no
-# machine has to keep an Android emulator + Appium server alive indefinitely for it.
+# Runs the full 32-test suite against BrowserStack App Automate instead of a local
+# emulator - no machine has to keep an Android emulator + Appium server alive for it.
 # Each run publishes a fresh Allure report to GitHub Pages, and - by seeding
 # allure-results/history from whatever is currently live on Pages before generating -
 # the report's trend graph accumulates real history across runs instead of only ever
 # showing the latest one.
+#
+# Triggered on demand (workflow_dispatch) rather than on a fixed schedule: BrowserStack
+# trial plans carry a limited monthly minutes quota, and an unattended hourly run
+# against 32 tests would exhaust it within days, after which this would fail on quota
+# instead of on a real regression - a worse signal than not running automatically at
+# all. The capability is fully built; turning on a fixed cadence is a one-line change
+# (uncomment the `schedule:` block below) once a plan with headroom for it is in place.
 
 on:
-  schedule:
-    - cron: "0 * * * *" # every hour, on the hour (UTC)
+  # schedule:
+  #   - cron: "0 * * * *" # every hour, on the hour (UTC) - see note above before enabling
   workflow_dispatch: {}
 
 permissions:
