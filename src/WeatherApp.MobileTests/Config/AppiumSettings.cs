@@ -39,26 +39,4 @@ public sealed class AppiumSettings
     public bool NoReset { get; set; } = false;
 
     public bool AutoGrantPermissions { get; set; } = true;
-
-    /// <summary>
-    /// When true, DriverFactory builds a session against BrowserStack App Automate
-    /// instead of a local emulator - used by the scheduled CI run so the recurring
-    /// suite doesn't require keeping a local emulator running indefinitely. All
-    /// BrowserStack values below come from environment variables in CI
-    /// (WEATHERAPP_Appium__...) - never hard-coded, never committed.
-    /// </summary>
-    public bool UseBrowserStack { get; set; } = false;
-
-    public string BrowserStackServerUrl { get; set; } = "https://hub-cloud.browserstack.com/wd/hub";
-
-    public string? BrowserStackUsername { get; set; }
-
-    public string? BrowserStackAccessKey { get; set; }
-
-    /// <summary>The "bs://..." reference returned by BrowserStack's app upload API - set per CI run, not committed.</summary>
-    public string? BrowserStackAppUrl { get; set; }
-
-    public string BrowserStackDeviceName { get; set; } = "Google Pixel 8";
-
-    public string BrowserStackOsVersion { get; set; } = "14.0";
 }
