@@ -231,6 +231,15 @@ emulator -avd Pixel_8_API_35
 
 Wait for it to fully boot (`adb devices` should show it as `device`, not `offline`).
 
+**If your AVD has a different name** (list yours with `emulator -list-avds`), you don't
+need to recreate one to match - copy `appsettings.local.json.example` to
+`appsettings.local.json` and set `Appium:DeviceName` to whatever yours is called:
+```json
+{ "Appium": { "DeviceName": "Your_AVD_Name_Here" } }
+```
+This file is git-ignored, so it's the intended place for exactly this kind of
+per-machine override (see Configuration below).
+
 ### 2. Restore, build, test
 
 ```bash
@@ -419,16 +428,21 @@ their dashboard regardless of the real result.
 Two workflows split the same underlying approach into two cadences, for the same
 reason CI/CD generally has a fast tier and a slow tier:
 
-- **`smoke-test.yml`** - runs on every push/PR to `main`. Filters down to 4 tests, one
-  positive core scenario per flow (Register, Login, Search, Logout) - deliberately the
-  same 4 that were this project's original minimal scope before it grew to 32. Fast,
-  and light on BrowserStack minutes, so it can run on every change.
+- **`smoke-test.yml`** - filters down to 4 tests, one positive core scenario per flow
+  (Register, Login, Search, Logout) - deliberately the same 4 that were this project's
+  original minimal scope before it grew to 32. Triggered on demand
+  (`workflow_dispatch`) only, not on every push/PR.
 - **`scheduled-browserstack-run.yml`** - runs once a day (`cron: "0 6 * * *"`, plus
   `workflow_dispatch` for an on-demand run any time) against the **full 32-test
-  suite**. BrowserStack trial plans carry a limited monthly minutes quota, and running
-  all 32 on every push would exhaust it within days, after which CI would fail on
-  quota, not on a real regression - a worse signal than a slower cadence for the full
-  set.
+  suite**.
+
+Both are on-demand-or-daily rather than on-every-push for the same concrete reason:
+BrowserStack's free trial ships with a 100-minute total budget shared across every
+workflow that uses it, not a separate budget per workflow - a handful of manual test
+runs during development already used over a quarter of it. Running either tier on
+every push would compete with the other for that same shrinking budget and exhaust it
+in days, after which CI fails on quota, not on a real regression - a worse signal than
+a slower, deliberate cadence.
 
 Both workflows seed `allure-results/history` from whatever is currently live on GitHub
 Pages (best-effort `curl` of the previous report's `history/*.json`) before
