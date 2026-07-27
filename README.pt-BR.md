@@ -117,7 +117,8 @@ public abstract class BasePage
 Todo Page Object e Component herda dessa classe em vez de compor um objeto de "ações"
 separado — uma única superfície de interação pra todo o framework, e exatamente um
 lugar (`WaitHelper`) onde as esperas explícitas são configuradas. Não existe nenhuma
-chamada a `Thread.Sleep` em nenhum lugar do código.
+chamada a `Thread.Sleep` em nenhum lugar do código. (`Click`/`Type` também tentam de
+novo, uma vez, num elemento stale — ver Decisões.)
 
 ### DriverFactory monta a sessão só a partir da configuração
 
@@ -200,9 +201,11 @@ over-engineering aqui:
 - **Uma classe `Actions` separada por Page** (`LoginPageActions` ao lado de
   `LoginPage`) — essa separação só compensa quando a superfície de ações de uma Page é
   enorme; as nossas não são.
-- **Retry automático na suíte inteira** — mascara instabilidade real em vez de
-  expô-la. Um retry *pontual* e visível está listado em Melhorias Futuras, não
-  implementado agora.
+- **Retry automático na suíte inteira ou num teste inteiro** — mascara instabilidade
+  real em vez de expô-la. O único retry que este framework tem é mais restrito e está
+  documentado em Decisões: um único retry de "localizar e agir de novo" dentro do
+  `BasePage`, especificamente para `StaleElementReferenceException`, não uma política
+  de retry geral.
 - **Um `AllLocators.cs` global** — os locators ficam como constantes privadas ao lado
   da Page/Component dona deles, não em um arquivo gigante e sem contexto.
 
@@ -408,6 +411,21 @@ direto na tela pós-login, pulando a tela de Login — quebrando a suposição d
 Object sobre onde ele começa. `noReset:false` custa velocidade, mas garante
 determinismo, que importa mais aqui.
 
+### Por que Click/Type tentam de novo, uma vez, num elemento stale
+
+Uma transição de tela que segue um submit (ex.: Cadastro navegando automaticamente
+pro Login) pode recriar a árvore de view no instante entre o `WaitForVisible`
+confirmar um elemento e a linha seguinte agir sobre ele — o elemento era real e
+visível na checagem, e ficou stale antes do `SendKeys`/`Click` executar. Essa é uma
+race condition real contra a própria UI do Android, não um locator ruim: apareceu
+durante uma execução local completa (`Logout_FromSettings_ReturnsToLoginScreen`, uma
+vez, sem reproduzir na execução seguinte). `BasePage.Click`/`Type` agora tentam
+exatamente uma vez, re-executando todo o passo de localizar-e-agir contra a tela já
+estabilizada — um bug real de locator ou do app ainda falha na segunda tentativa.
+Isso é deliberadamente mais restrito que um retry a nível de teste (ver
+Limitações/Melhorias Futuras abaixo): só re-localiza um único elemento, nunca re-roda
+um teste inteiro.
+
 ### Por que os resultados do Allure são escritos manualmente, sem `[AllureNUnit]`
 
 O atributo de ação `[AllureNUnit]` do pacote `Allure.NUnit` também gerencia um
@@ -488,9 +506,11 @@ gh workflow run scheduled-browserstack-run.yml
 - **Locators de campo são por posição, não por id** — uma correção de verdade exige
   mudança no próprio app (adicionar `AutomationId`), fora do controle deste
   repositório.
-- **Sem política de retry.** Uma execução genuinamente instável falha o teste em vez
-  de tentar de novo, por decisão deliberada — prefiro ver uma instabilidade a
-  escondê-la, mas um projeto real ia querer um retry limitado e visível.
+- **Sem política de retry a nível de teste.** Um teste genuinamente instável falha em
+  vez de rodar de novo, por decisão deliberada — prefiro ver uma instabilidade a
+  escondê-la. (O `BasePage` tenta de novo, uma vez, especificamente pra
+  `StaleElementReferenceException` — ver Decisões — mas isso é uma proteção pontual a
+  nível de interação, não uma política de retry geral.)
 - **`noReset:false` deixa a suíte mais lenta do que precisaria** (~15-20s de overhead
   de reset do app por teste) em troca de determinismo — veja Decisões pelo bug que
   motivou essa escolha como padrão mais seguro.

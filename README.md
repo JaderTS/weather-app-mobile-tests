@@ -116,7 +116,8 @@ public abstract class BasePage
 Every Page Object and Component inherits this instead of composing a separate
 "actions" object — one interaction surface for the whole framework, and exactly one
 place (`WaitHelper`) where explicit waits are configured. There is no `Thread.Sleep`
-call anywhere in this codebase.
+call anywhere in this codebase. (`Click`/`Type` also retry once on a stale element —
+see Decisions for why.)
 
 ### DriverFactory builds the session purely from config
 
@@ -195,8 +196,10 @@ over-engineering here:
   native, faster, Android-recommended mechanism; XPath is a fallback I never needed.
 - **A separate `Actions` class per Page** (`LoginPageActions` next to `LoginPage`) —
   that split only pays off when a Page's action surface is huge; ours aren't.
-- **Automatic retries on the whole suite** — masks real flakiness instead of surfacing
-  it. A *scoped*, visible retry is listed under Future Improvements instead.
+- **Automatic retries on the whole suite or on a whole test** — masks real flakiness
+  instead of surfacing it. The one retry this framework does have is narrower and
+  documented in Decisions: a single re-locate-and-act retry inside `BasePage` for a
+  `StaleElementReferenceException` specifically, not a general-purpose retry policy.
 - **A global `AllLocators.cs`** — locators live as private constants next to the
   Page/Component that owns them, not in one giant, context-free file.
 
@@ -394,6 +397,20 @@ causes the *next* test's session to cold-launch straight past the Login screen,
 breaking every Page Object's assumption about where it starts. `noReset:false` costs
 speed but guarantees determinism, which matters more here.
 
+### Why Click/Type retry once on a stale element
+
+A screen transition that follows a submit (e.g. Register auto-navigating to Login)
+can recreate the view tree in the moment between `WaitForVisible` confirming an
+element and the next line acting on it — the element was real and visible at the
+check, then went stale before `SendKeys`/`Click` executed. This is a genuine race
+against Android's own UI, not a bad locator: it surfaced during a full local run
+(`Logout_FromSettings_ReturnsToLoginScreen`, once, non-reproducing on re-run).
+`BasePage.Click`/`Type` now retry exactly once by re-running the whole
+locate-and-act step against the settled screen — a real locator or app bug still
+fails on the second attempt. This is deliberately narrower than a test-level retry
+(see Limitations/Future Improvements below): it only ever re-locates a single
+element, never re-runs a whole test.
+
 ### Why Allure results are written manually instead of via `[AllureNUnit]`
 
 The `Allure.NUnit` package's `[AllureNUnit]` action attribute also manages a "test
@@ -475,9 +492,10 @@ gh workflow run scheduled-browserstack-run.yml
   device farm, no matrix of screen sizes/OS versions.
 - **Input locators are position-based, not id-based** — a real fix requires a change
   in the app itself (adding `AutomationId`), outside this repo's control.
-- **No retry policy.** A genuinely flaky run fails the test rather than retrying once,
-  by design — I'd rather see a flake than hide it, but a real project would want a
-  bounded, visible retry.
+- **No test-level retry policy.** A genuinely flaky test fails rather than re-running,
+  by design — I'd rather see a flake than hide it. (`BasePage` does retry once on a
+  `StaleElementReferenceException` specifically — see Decisions — but that's a narrow
+  interaction-level safeguard, not a general retry policy.)
 - **`noReset:false` makes the suite slower than it has to be** (~15-20s of app-reset
   overhead per test) in exchange for determinism — see Decisions for the bug that made
   this the safer default.
