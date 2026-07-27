@@ -23,15 +23,18 @@ public abstract class BasePage
     protected void Click(By locator)
     {
         Log.Information("Click -> {Locator}", locator);
-        Wait.WaitForClickable(locator).Click();
+        RetryOnStaleElement(() => Wait.WaitForClickable(locator).Click());
     }
 
     protected void Type(By locator, string text)
     {
         Log.Information("Type '{Text}' -> {Locator}", text, locator);
-        var element = Wait.WaitForVisible(locator);
-        element.Clear();
-        element.SendKeys(text);
+        RetryOnStaleElement(() =>
+        {
+            var element = Wait.WaitForVisible(locator);
+            element.Clear();
+            element.SendKeys(text);
+        });
     }
 
     protected string GetText(By locator) => Wait.WaitForVisible(locator).Text;
@@ -39,4 +42,23 @@ public abstract class BasePage
     protected bool IsDisplayed(By locator) => Wait.WaitForVisible(locator).Displayed;
 
     protected bool IsAbsent(By locator) => Wait.WaitForAbsence(locator);
+
+    /// <summary>
+    /// A screen transition (e.g. Register auto-navigating to Login right after submit)
+    /// can recreate the view tree in the moment between WaitForVisible confirming an
+    /// element and the next call acting on it, throwing StaleElementReferenceException
+    /// even though the wait itself succeeded. One retry re-locates the element fresh
+    /// against the settled screen; a real locator/app bug still fails on the second try.
+    /// </summary>
+    private static void RetryOnStaleElement(Action action)
+    {
+        try
+        {
+            action();
+        }
+        catch (StaleElementReferenceException)
+        {
+            action();
+        }
+    }
 }
