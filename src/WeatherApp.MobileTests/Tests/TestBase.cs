@@ -85,18 +85,6 @@ public abstract class TestBase
 
         AllureReportWriter.StopAndWriteTestCase();
 
-        if (Driver is not null && ConfigurationProvider.Settings.Appium.UseBrowserStack)
-        {
-            try
-            {
-                BrowserStackReporter.ReportTestResult(Driver, failed, result.Message);
-            }
-            catch (Exception ex)
-            {
-                Log.Warning(ex, "Failed to report test result back to BrowserStack");
-            }
-        }
-
         Driver?.Quit();
         Driver?.Dispose();
     }

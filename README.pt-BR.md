@@ -2,9 +2,7 @@
 
 Um framework de automação com Appium + C#/NUnit para o app Android Weather App
 (`apps/weather-app.apk`), cobrindo os quatro fluxos que o desafio menciona
-explicitamente: **Cadastro, Login, Busca de Clima, Logout** — além de uma execução
-agendada via BrowserStack, pra rodar em dispositivo real sem precisar manter um
-emulador local ligado o tempo todo.
+explicitamente: **Cadastro, Login, Busca de Clima, Logout**.
 
 > Este é o README de apoio, em português. O documento principal, avaliado (em inglês,
 > conforme pedido no briefing), é o [`README.md`](README.md).
@@ -14,13 +12,14 @@ emulador local ligado o tempo todo.
 - C#
 - .NET 8
 - NUnit 3
-- Appium 2 (driver UiAutomator2) — emulador local ou BrowserStack App Automate
+- Appium 2 (driver UiAutomator2)
 - Page Object Model + Component Objects
 - Serilog (logs em console + arquivo, com rotação)
 - Allure 2 (relatórios HTML, com histórico de tendência entre execuções)
 - Microsoft.Extensions.Configuration (config em camadas: JSON + variáveis de ambiente)
-- GitHub Actions — usado antes num pipeline de CI via BrowserStack; removido quando os
-  minutos do trial acabaram (ver Decisões)
+- GitHub Actions — usado antes num pipeline de CI via BrowserStack; tanto os workflows
+  quanto o suporte à BrowserStack no driver foram removidos quando os minutos do trial
+  acabaram (ver Decisões)
 
 ## Arquitetura
 
@@ -127,14 +126,14 @@ novo, uma vez, num elemento stale — ver Decisões.)
 public static AndroidDriver CreateAndroidDriver()
 {
     var settings = ConfigurationProvider.Settings.Appium;
-    return settings.UseBrowserStack ? CreateBrowserStackDriver(settings) : CreateLocalDriver(settings);
+    return CreateLocalDriver(settings);
 }
 ```
 
-Dispositivo, caminho do APK, timeouts e até o *alvo* da execução (emulador local vs.
-BrowserStack) são configuração, nunca uma mudança de código. Veja em
-[Decisões](#decisões) por que a BrowserStack existe como uma segunda opção aqui em vez
-de rodar só localmente pra sempre.
+Dispositivo, caminho do APK e timeouts são configuração, nunca uma mudança de código.
+Isso também alternava entre um emulador local e uma sessão da BrowserStack App
+Automate atrás da mesma flag de config — veja em [Decisões](#decisões) por que esse
+branch foi removido.
 
 ### TestBase controla o único ciclo de vida que todas as fixtures compartilham
 
@@ -170,7 +169,7 @@ mobile-coding-challenge/
 ├── docs/                                # relatório Allure gerado, versionado pro GitHub Pages (última execução real antes do CI ser removido - ver Decisões)
 ├── src/WeatherApp.MobileTests/
 │   ├── Config/       # AppiumSettings, TimeoutSettings, TestUserSettings, ConfigurationProvider
-│   ├── Drivers/      # DriverFactory (local + BrowserStack), AppiumServerManager
+│   ├── Drivers/      # DriverFactory, AppiumServerManager
 │   ├── Core/         # BasePage, WaitHelper
 │   ├── Pages/        # LoginPage, RegisterPage, LandingPage, SearchPage, ForecastPage, SettingsPage
 │   ├── Components/   # LocationResultList
@@ -276,39 +275,13 @@ Os logs ficam em `logs/test-run-<data>.log`, screenshots de falha em `Screenshot
 ambos ao lado dos binários de teste, e ambos anexados automaticamente aos testes que
 falharem no relatório Allure também.
 
-### 4. Rodar contra a BrowserStack em vez do emulador (opcional)
-
-Copie `appsettings.local.json.example` pra `appsettings.local.json` e configure:
-```json
-{
-  "Appium": {
-    "UseBrowserStack": true,
-    "BrowserStackUsername": "...",
-    "BrowserStackAccessKey": "...",
-    "BrowserStackAppUrl": "bs://... (obtido ao subir o APK - veja abaixo)"
-  }
-}
-```
-Suba o APK uma vez pra obter o `app_url`:
-```bash
-curl -u "$BROWSERSTACK_USERNAME:$BROWSERSTACK_ACCESS_KEY" \
-  -X POST "https://api-cloud.browserstack.com/app-automate/upload" \
-  -F "file=@apps/weather-app.apk"
-```
-Depois rode `dotnet test` normalmente — o `DriverFactory` já entra no branch da
-BrowserStack automaticamente, sem precisar mudar código. Um workflow que automatizava
-exatamente isso (subindo o APK a cada execução, usando secrets do repositório em vez
-de um arquivo local) existiu e rodou com sucesso no CI — veja Decisões pelo motivo da
-remoção.
-
 ### Configuração
 
 Todas as configurações ficam em `appsettings.json` (versionado, sem segredos) e podem
 ser sobrescritas via `appsettings.local.json` (ignorado no git) ou variáveis de
-ambiente com prefixo `WEATHERAPP_` (ex.: `WEATHERAPP_TestUser__Password`, ou
-`WEATHERAPP_Appium__UseBrowserStack` no CI). Nada — nome do dispositivo, timeouts,
-caminho do APK, senha da conta de teste, credenciais da BrowserStack — está hard-coded
-em uma classe.
+ambiente com prefixo `WEATHERAPP_` (ex.: `WEATHERAPP_TestUser__Password`). Nada — nome
+do dispositivo, timeouts, caminho do APK, senha da conta de teste — está hard-coded em
+uma classe.
 
 ## Escopo da Automação (perspectiva de QA)
 
@@ -439,12 +412,12 @@ nunca abre um container, produzindo o mesmo JSON de `allure-results` sem passar 
 caminho de código que quebra — isolado na própria classe, então a única integração que
 já quebrou uma vez fica num lugar único e substituível.
 
-### Por que não tem CI agora — e o que existia antes
+### Por que a BrowserStack foi removida por completo, não só o gatilho de CI
 
 Este projeto teve, sim, um pipeline de CI funcional em duas camadas apontando pra
-BrowserStack App Automate em vez do emulador local: o `DriverFactory` já ramifica em
-`Appium:UseBrowserStack` e monta um conjunto de capabilities `bstack:options` em vez
-de um de emulador local justamente por isso, o `AppiumServerManager` nem tenta subir
+BrowserStack App Automate em vez do emulador local: o `DriverFactory` ramificava em
+`Appium:UseBrowserStack` e montava um conjunto de capabilities `bstack:options` em vez
+de um de emulador local justamente por isso, o `AppiumServerManager` nem tentava subir
 um servidor local nesse modo, o APK era enviado pra BrowserStack do zero a cada
 execução via API REST deles em vez de ficar versionado em algum lugar, e o
 `TestBase` reportava o resultado real do NUnit (passou/falhou) de volta pra
@@ -462,23 +435,27 @@ desenvolvimento, não encenado. O plano trial gratuito carrega um orçamento fix
 mensal que se renova — e a iteração normal (rodar de novo pra corrigir os problemas
 de relaunch instável e de elemento stale documentados em outra parte deste README)
 consumiu tudo. `BROWSERSTACK_TESTING_TIME_LIMIT_EXHAUSTED` é o erro exato que a
-BrowserStack devolve quando esse orçamento chega a zero.
+BrowserStack devolve quando esse orçamento chega a zero, sem caminho gratuito de
+volta pra mais minutos.
 
-Em vez de deixar dois workflows no repositório com garantia de falhar toda vez que
-rodarem (um sinal ruim — um badge de CI vermelho que significa "acabaram os minutos
-do trial", não "algo está quebrado"), removi os dois arquivos de workflow. O suporte
-à BrowserStack em si (`DriverFactory`/`BrowserStackReporter`) continua no código —
-apontar pra BrowserStack ainda funciona hoje a partir de uma máquina local com
-credenciais válidas em `appsettings.local.json` (ver Como Executar) — só o gatilho
-*automático, agendado/CI* que sumiu. O caminho totalmente validado agora é a
-execução local contra o emulador (`dotnet test`, 32/32 passando — ver Escopo da
-Automação).
+Primeiro removi só os dois arquivos de workflow, mantendo o branch
+`DriverFactory`/`BrowserStackReporter` no código como uma capacidade opcional local.
+Repensando, essa foi a decisão errada: este projeto já tem um princípio documentado
+(veja "O que eu propositalmente não coloquei") de não manter código parado pra uma
+capacidade que nada exercita atualmente — um branch não testado e inalcançável é
+exatamente isso, não uma conveniência. Sem conta da BrowserStack capaz de rodar isso e
+sem plano de pagar por uma no curto prazo, a integração inteira foi removida agora: o
+`DriverFactory` só constrói um driver local, o `AppiumSettings` não tem mais
+propriedades `BrowserStack*`, o `BrowserStackReporter.cs` foi apagado, e o `TestBase`
+não reporta resultado pra mais nenhum lugar além do Allure. O caminho totalmente
+validado é a execução local contra o emulador (`dotnet test`, 32/32 passando — ver
+Escopo da Automação).
 
-Restaurar o CI é quase inteiramente uma mudança de configuração, não uma reescrita:
-ou um plano pago da BrowserStack (ou um trial novo com credenciais diferentes) mais
-recuperar os dois arquivos de workflow removidos do histórico do git, ou apontar o
-mesmo padrão de capability `UseXyz` pra outro device cloud (Sauce Labs, etc. — ver
-Melhorias Futuras).
+Trazer de volta a execução em nuvem depois é uma reconstrução, não uma troca de
+config — mas uma pequena: o histórico do git tem o código exato do
+`DriverFactory`/`BrowserStackReporter`/workflows pra partir dali, seja apontando de
+volta pra BrowserStack sob um plano pago ou pra outro device cloud (Sauce Labs, etc. —
+ver Melhorias Futuras).
 
 ## O que Não Foi Implementado / Limitações
 
@@ -490,8 +467,7 @@ Melhorias Futuras).
   aninhada, tempo de boot, instabilidade) é trabalho real e separado que nunca foi
   tentado, já que a BrowserStack era o substituto compatível com CI justamente pra
   esse problema.
-- **Perfil único de dispositivo.** Tudo é validado num único AVD (Pixel 8 / API 35)
-  localmente, e uma única configuração (Google Pixel 8 / Android 14) na BrowserStack.
+- **Perfil único de dispositivo.** Tudo é validado num único AVD (Pixel 8 / API 35).
   Sem device farm, sem matriz de tamanhos de tela/versões de SO.
 - **Locators de campo são por posição, não por id** — uma correção de verdade exige
   mudança no próprio app (adicionar `AutomationId`), fora do controle deste
@@ -515,10 +491,10 @@ Melhorias Futuras).
 
 ## Melhorias Futuras
 
-- **Restaurar o CI** — ou um plano pago da BrowserStack (ou um trial novo) mais
-  recuperar do histórico do git os dois arquivos de workflow removidos, ou apontar o
-  mesmo padrão de capability `UseXyz` pra outro device cloud (Sauce Labs, etc.) — veja
-  Decisões pelo motivo da remoção e o que já existe pra reconstruir em cima.
+- **Restaurar o CI e a execução em nuvem** — reconstruir o código de
+  `DriverFactory`/`BrowserStackReporter`/workflows a partir do histórico do git,
+  apontando pra um plano pago da BrowserStack (ou um trial novo) ou pra outro device
+  cloud (Sauce Labs, etc.) — veja Decisões pelo motivo da remoção.
 - **Rodar a suíte completa de 32 testes em cada PR**, não só 1x ao dia, assim que o
   CI for restaurado e um plano de maior capacidade remover a preocupação com cota.
 - **Execução paralela** — as fixtures já são independentes (usuários únicos, sem
