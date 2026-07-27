@@ -237,6 +237,15 @@ emulator -avd Pixel_8_API_35
 
 Espere o boot completo (`adb devices` deve mostrar `device`, não `offline`).
 
+**Se o seu AVD tiver outro nome** (liste os seus com `emulator -list-avds`), não
+precisa recriar um pra ficar igual — copie `appsettings.local.json.example` pra
+`appsettings.local.json` e defina `Appium:DeviceName` com o nome do seu:
+```json
+{ "Appium": { "DeviceName": "Nome_Do_Seu_AVD" } }
+```
+Esse arquivo é ignorado pelo git, então é exatamente o lugar pensado pra esse tipo de
+override por máquina (veja Configuração abaixo).
+
 ### 2. Restaurar, compilar, testar
 
 ```bash

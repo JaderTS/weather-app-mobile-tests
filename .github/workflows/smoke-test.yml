@@ -1,17 +1,19 @@
 name: Smoke test and publish
 
 # Fast feedback loop: runs 4 tests (one positive core scenario per flow - Registration,
-# Login, Weather Search, Logout) against BrowserStack on every push/PR, then publishes
-# the real result to GitHub Pages. This is deliberately the *smaller* tier: the full
-# 32-test suite (scheduled-browserstack-run.yml) runs once a day instead of on every
-# push, so this one stays fast and light on BrowserStack trial-plan minutes while still
-# validating that the core path through each flow actually works before merging.
+# Login, Weather Search, Logout) against BrowserStack, then publishes the real result
+# to GitHub Pages. This is deliberately the *smaller* tier next to the full 32-test
+# suite (scheduled-browserstack-run.yml, once a day).
+#
+# Triggered on demand only (workflow_dispatch), not on every push/PR: a BrowserStack
+# trial plan's total minutes are a hard, shared budget across every workflow that uses
+# it, not just this one - confirmed in practice (a handful of manual test runs during
+# development already used over a quarter of a 100-minute trial). Running this on every
+# push, on top of the daily full-suite run, would compete for and exhaust that same
+# budget faster than expected. Run it manually whenever you want fast feedback on the
+# core paths without spending a full-suite run's worth of minutes.
 
 on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
   workflow_dispatch: {}
 
 permissions:
