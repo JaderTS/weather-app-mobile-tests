@@ -2,8 +2,7 @@
 
 An Appium + C#/NUnit automation framework for the Weather App Android build
 (`apps/weather-app.apk`), covering the four flows the challenge calls out by name:
-**Registration, Login, Weather Search, Logout** — plus a BrowserStack-backed scheduled
-run so the suite can execute on a real device without keeping a local emulator alive.
+**Registration, Login, Weather Search, Logout**.
 
 > This README is the primary, evaluated document (English, per the brief). A Portuguese
 > companion with equivalent content lives at [`README.pt-BR.md`](README.pt-BR.md).
@@ -13,13 +12,14 @@ run so the suite can execute on a real device without keeping a local emulator a
 - C#
 - .NET 8
 - NUnit 3
-- Appium 2 (UiAutomator2 driver) — local emulator or BrowserStack App Automate
+- Appium 2 (UiAutomator2 driver)
 - Page Object Model + Component Objects
 - Serilog (console + rolling file logging)
 - Allure 2 (HTML test reports, with trend history across runs)
 - Microsoft.Extensions.Configuration (layered JSON + environment variable config)
-- GitHub Actions — used earlier for a BrowserStack-backed CI pipeline; removed once
-  the trial's testing minutes ran out (see Decisions)
+- GitHub Actions — used earlier for a BrowserStack-backed CI pipeline; both the
+  workflows and the BrowserStack driver support were removed once the trial's testing
+  minutes ran out (see Decisions)
 
 ## Architecture
 
@@ -126,13 +126,13 @@ see Decisions for why.)
 public static AndroidDriver CreateAndroidDriver()
 {
     var settings = ConfigurationProvider.Settings.Appium;
-    return settings.UseBrowserStack ? CreateBrowserStackDriver(settings) : CreateLocalDriver(settings);
+    return CreateLocalDriver(settings);
 }
 ```
 
-Device, APK path, timeouts, and even the *target* (local emulator vs. BrowserStack) are
-config, never a code change. See [Decisions](#decisions) for why BrowserStack exists as
-a second branch here instead of only ever running locally.
+Device, APK path, and timeouts are config, never a code change. This used to also
+switch between a local emulator and a BrowserStack App Automate session behind the
+same config flag — see [Decisions](#decisions) for why that branch was removed.
 
 ### TestBase controls the one lifecycle every fixture shares
 
@@ -167,7 +167,7 @@ mobile-coding-challenge/
 ├── docs/                                # a generated Allure report, checked in for GitHub Pages (last real run before CI was removed - see Decisions)
 ├── src/WeatherApp.MobileTests/
 │   ├── Config/       # AppiumSettings, TimeoutSettings, TestUserSettings, ConfigurationProvider
-│   ├── Drivers/      # DriverFactory (local + BrowserStack), AppiumServerManager
+│   ├── Drivers/      # DriverFactory, AppiumServerManager
 │   ├── Core/         # BasePage, WaitHelper
 │   ├── Pages/        # LoginPage, RegisterPage, LandingPage, SearchPage, ForecastPage, SettingsPage
 │   ├── Components/   # LocationResultList
@@ -270,37 +270,12 @@ Logs land in `logs/test-run-<date>.log`, failure screenshots in `Screenshots/` �
 next to the test binaries, and both attached automatically to failed tests in the
 Allure report too.
 
-### 4. Run against BrowserStack instead of the emulator (optional)
-
-Copy `appsettings.local.json.example` to `appsettings.local.json` and set:
-```json
-{
-  "Appium": {
-    "UseBrowserStack": true,
-    "BrowserStackUsername": "...",
-    "BrowserStackAccessKey": "...",
-    "BrowserStackAppUrl": "bs://... (from uploading the APK - see below)"
-  }
-}
-```
-Upload the APK once to get an `app_url`:
-```bash
-curl -u "$BROWSERSTACK_USERNAME:$BROWSERSTACK_ACCESS_KEY" \
-  -X POST "https://api-cloud.browserstack.com/app-automate/upload" \
-  -F "file=@apps/weather-app.apk"
-```
-Then `dotnet test` as usual — `DriverFactory` picks up the BrowserStack branch
-automatically, no code change needed. A workflow that automated exactly this (upload
-fresh each run, using repo secrets instead of a local file) existed and ran
-successfully in CI — see Decisions for why it was removed.
-
 ### Configuration
 
 All settings live in `appsettings.json` (committed, no secrets) and can be overridden
 via `appsettings.local.json` (git-ignored) or environment variables prefixed
-`WEATHERAPP_` (e.g. `WEATHERAPP_TestUser__Password`, or `WEATHERAPP_Appium__UseBrowserStack`
-in CI). Nothing — device name, timeouts, APK path, test account password, BrowserStack
-credentials — is hard-coded in a class.
+`WEATHERAPP_` (e.g. `WEATHERAPP_TestUser__Password`). Nothing — device name, timeouts,
+APK path, test account password — is hard-coded in a class.
 
 ## Scope of Automation (QA Perspective)
 
@@ -423,12 +398,12 @@ opens a container, producing the identical `allure-results` JSON without the cra
 isolated in its own class so the one integration that already broke once lives in a
 single, replaceable place.
 
-### Why there's no CI right now — and what was there before
+### Why BrowserStack was removed entirely, not just the CI trigger
 
 This project did have a working two-tier CI pipeline pointed at BrowserStack App
-Automate instead of a local emulator: `DriverFactory` already branches on
-`Appium:UseBrowserStack` and builds a `bstack:options` capability set instead of a
-local-emulator one for exactly this reason, `AppiumServerManager` skips starting a
+Automate instead of a local emulator: `DriverFactory` branched on
+`Appium:UseBrowserStack` and built a `bstack:options` capability set instead of a
+local-emulator one for exactly this reason, `AppiumServerManager` skipped starting a
 local server in that mode, the APK was uploaded to BrowserStack fresh each run via
 their REST API instead of being checked in anywhere, and `TestBase` reported the real
 NUnit pass/fail outcome back to BrowserStack via their `browserstack_executor` API
@@ -443,21 +418,25 @@ free trial's App Automate plan carries a fixed, one-time 100-minute total budget
 shared across every run — not a renewing monthly allowance — and normal iteration
 (re-running to fix the flaky-relaunch and stale-element issues documented elsewhere in
 this README) used it up. `BROWSERSTACK_TESTING_TIME_LIMIT_EXHAUSTED` is the exact
-error BrowserStack returns once that budget hits zero.
+error BrowserStack returns once that budget hits zero, with no free path back to more
+minutes.
 
-Rather than leave two workflows in the repo that are now guaranteed to fail every time
-they run (a bad signal — a red CI badge that means "out of trial minutes," not
-"something is broken"), I removed both workflow files. The `DriverFactory`/
-`BrowserStackReporter` BrowserStack support itself stays in the codebase — pointing at
-BrowserStack still works today from a local machine with valid credentials in
-`appsettings.local.json` (see How to Run) — only the *automatic, scheduled/CI* trigger
-is gone. The fully validated path right now is local execution against the emulator
+First I removed just the two workflow files, keeping the `DriverFactory`/
+`BrowserStackReporter` branch in the codebase as an opt-in local capability. On
+reflection that was the wrong call: this project already has a documented principle
+(see "What I deliberately did not add") of not keeping code around for a capability
+nothing currently exercises — an untested, unreachable branch is exactly that, not a
+convenience. With no BrowserStack account able to run it and no near-term plan to pay
+for one, the entire integration is now removed: `DriverFactory` only ever builds a
+local driver, `AppiumSettings` has no `BrowserStack*` properties,
+`BrowserStackReporter.cs` is deleted, and `TestBase` no longer reports results
+anywhere but Allure. The fully validated path is local execution against the emulator
 (`dotnet test`, 32/32 passing — see Scope of Automation).
 
-Restoring CI is almost entirely a config change, not a rewrite: either a paid
-BrowserStack plan (or a fresh trial under different credentials) plus re-adding the
-two workflow files from git history, or pointing the same `UseXyz` capability pattern
-at a different device cloud (Sauce Labs, etc. — see Future Improvements).
+Bringing cloud-device execution back later is a rebuild, not a config flip — but a
+small one: git history has the exact `DriverFactory`/`BrowserStackReporter`/workflow
+code to start from, whether pointed back at BrowserStack under a paid plan or at a
+different device cloud (Sauce Labs, etc. — see Future Improvements).
 
 ## What Wasn't Implemented / Limitations
 
@@ -469,8 +448,7 @@ at a different device cloud (Sauce Labs, etc. — see Future Improvements).
   cold-boot time, flakiness) is real, separate work that was never attempted, since
   BrowserStack was the CI-friendly substitute for exactly that problem.
 - **Single device profile.** Everything is validated against one AVD (Pixel 8 / API
-  35) locally, and one device config (Google Pixel 8 / Android 14) on BrowserStack. No
-  device farm, no matrix of screen sizes/OS versions.
+  35). No device farm, no matrix of screen sizes/OS versions.
 - **Input locators are position-based, not id-based** — a real fix requires a change
   in the app itself (adding `AutomationId`), outside this repo's control.
 - **No test-level retry policy.** A genuinely flaky test fails rather than re-running,
@@ -490,10 +468,10 @@ at a different device cloud (Sauce Labs, etc. — see Future Improvements).
 
 ## Future Improvements
 
-- **Restore CI** — either a paid BrowserStack plan (or a fresh trial) plus re-adding
-  the two removed workflow files from git history, or pointing the same `UseXyz`
-  capability pattern at a different device cloud (Sauce Labs, etc.) — see Decisions
-  for why it was removed and what already exists to build back on.
+- **Restore CI and cloud-device execution** — rebuild the `DriverFactory`/
+  `BrowserStackReporter`/workflow code from git history, pointed at either a paid
+  BrowserStack plan (or a fresh trial) or a different device cloud (Sauce Labs, etc.)
+  — see Decisions for why it was removed.
 - **Run the full 32-test suite on every PR**, not just once a day, once CI is
   restored and a higher-capacity plan removes the quota concern.
 - **Parallel execution** — fixtures are already independent (unique users, no shared
