@@ -18,7 +18,8 @@ run so the suite can execute on a real device without keeping a local emulator a
 - Serilog (console + rolling file logging)
 - Allure 2 (HTML test reports, with trend history across runs)
 - Microsoft.Extensions.Configuration (layered JSON + environment variable config)
-- GitHub Actions (report publishing to GitHub Pages; scheduled BrowserStack run)
+- GitHub Actions — used earlier for a BrowserStack-backed CI pipeline; removed once
+  the trial's testing minutes ran out (see Decisions)
 
 ## Architecture
 
@@ -163,10 +164,7 @@ speed (~15–20s of app-reset overhead per test); the alternative was flaky.
 mobile-coding-challenge/
 ├── apps/
 │   └── weather-app.apk
-├── .github/workflows/
-│   ├── smoke-test.yml                   # on every push/PR: 4 core tests on BrowserStack, publishes to Pages
-│   └── scheduled-browserstack-run.yml   # once a day: full 32-test suite on BrowserStack, publishes to Pages
-├── docs/                                # a generated Allure report, checked in for GitHub Pages (initial snapshot)
+├── docs/                                # a generated Allure report, checked in for GitHub Pages (last real run before CI was removed - see Decisions)
 ├── src/WeatherApp.MobileTests/
 │   ├── Config/       # AppiumSettings, TimeoutSettings, TestUserSettings, ConfigurationProvider
 │   ├── Drivers/      # DriverFactory (local + BrowserStack), AppiumServerManager
@@ -292,9 +290,9 @@ curl -u "$BROWSERSTACK_USERNAME:$BROWSERSTACK_ACCESS_KEY" \
   -F "file=@apps/weather-app.apk"
 ```
 Then `dotnet test` as usual — `DriverFactory` picks up the BrowserStack branch
-automatically, no code change needed. This is exactly what
-`.github/workflows/scheduled-browserstack-run.yml` automates in CI (uploading fresh
-each run, using repo secrets instead of a local file).
+automatically, no code change needed. A workflow that automated exactly this (upload
+fresh each run, using repo secrets instead of a local file) existed and ran
+successfully in CI — see Decisions for why it was removed.
 
 ### Configuration
 
@@ -425,68 +423,51 @@ opens a container, producing the identical `allure-results` JSON without the cra
 isolated in its own class so the one integration that already broke once lives in a
 single, replaceable place.
 
-### Why CI targets BrowserStack instead of the local emulator, in two tiers
+### Why there's no CI right now — and what was there before
 
-Running a suite in CI on a *local* emulator would mean keeping some machine's Android
-emulator + Appium server alive - real, ongoing cost, and GitHub-hosted runners can't do
-it reliably anyway (see Limitations). Pointing CI at BrowserStack App Automate instead
-means execution costs nothing to host: `DriverFactory` branches on
+This project did have a working two-tier CI pipeline pointed at BrowserStack App
+Automate instead of a local emulator: `DriverFactory` already branches on
 `Appium:UseBrowserStack` and builds a `bstack:options` capability set instead of a
-local-emulator one; `AppiumServerManager` skips starting a local server entirely in
-that mode. The APK is uploaded to BrowserStack fresh each run via their REST API rather
-than checked in anywhere, and the only credentials involved -
-`BROWSERSTACK_USERNAME`/`BROWSERSTACK_ACCESS_KEY` - are GitHub Actions secrets, never
-committed. `TestBase` also reports the real NUnit pass/fail outcome back to
-BrowserStack via their `browserstack_executor` API (`Drivers/BrowserStackReporter.cs`)
-- without that call, BrowserStack only knows the Appium session didn't crash, not
-whether the assertions actually passed, so every session would show up unmarked in
-their dashboard regardless of the real result.
+local-emulator one for exactly this reason, `AppiumServerManager` skips starting a
+local server in that mode, the APK was uploaded to BrowserStack fresh each run via
+their REST API instead of being checked in anywhere, and `TestBase` reported the real
+NUnit pass/fail outcome back to BrowserStack via their `browserstack_executor` API
+(`Drivers/BrowserStackReporter.cs`) — without that call BrowserStack only knows the
+Appium session didn't crash, not whether the assertions actually passed. Two
+workflows split this into a fast tier (4 core tests, on demand) and a slow tier (the
+full 32, once a day) — the same fast/slow split any CI/CD setup ends up wanting.
 
-Two workflows split the same underlying approach into two cadences, for the same
-reason CI/CD generally has a fast tier and a slow tier:
+It worked: the GitHub Pages report's trend history (visible on the live site) is real
+accumulated data from actual BrowserStack runs during development, not staged. The
+free trial's App Automate plan carries a fixed, one-time 100-minute total budget
+shared across every run — not a renewing monthly allowance — and normal iteration
+(re-running to fix the flaky-relaunch and stale-element issues documented elsewhere in
+this README) used it up. `BROWSERSTACK_TESTING_TIME_LIMIT_EXHAUSTED` is the exact
+error BrowserStack returns once that budget hits zero.
 
-- **`smoke-test.yml`** - filters down to 4 tests, one positive core scenario per flow
-  (Register, Login, Search, Logout) - deliberately the same 4 that were this project's
-  original minimal scope before it grew to 32. Triggered on demand
-  (`workflow_dispatch`) only, not on every push/PR.
-- **`scheduled-browserstack-run.yml`** - runs once a day (`cron: "0 6 * * *"`, plus
-  `workflow_dispatch` for an on-demand run any time) against the **full 32-test
-  suite**.
+Rather than leave two workflows in the repo that are now guaranteed to fail every time
+they run (a bad signal — a red CI badge that means "out of trial minutes," not
+"something is broken"), I removed both workflow files. The `DriverFactory`/
+`BrowserStackReporter` BrowserStack support itself stays in the codebase — pointing at
+BrowserStack still works today from a local machine with valid credentials in
+`appsettings.local.json` (see How to Run) — only the *automatic, scheduled/CI* trigger
+is gone. The fully validated path right now is local execution against the emulator
+(`dotnet test`, 32/32 passing — see Scope of Automation).
 
-Both are on-demand-or-daily rather than on-every-push for the same concrete reason:
-BrowserStack's free trial ships with a 100-minute total budget shared across every
-workflow that uses it, not a separate budget per workflow - a handful of manual test
-runs during development already used over a quarter of it. Running either tier on
-every push would compete with the other for that same shrinking budget and exhaust it
-in days, after which CI fails on quota, not on a real regression - a worse signal than
-a slower, deliberate cadence.
-
-Both workflows seed `allure-results/history` from whatever is currently live on GitHub
-Pages (best-effort `curl` of the previous report's `history/*.json`) before
-generating, and share the same `concurrency: group: pages` so they queue instead of
-clobbering each other's deployment. Allure only draws its trend graph from that
-history folder, so without this step every run would publish a report with no
-history - with it, trend data accumulates across runs (from both tiers, on the same
-graph) without ever committing the report itself to git.
-
-**One-time setup:**
-```bash
-gh secret set BROWSERSTACK_USERNAME
-gh secret set BROWSERSTACK_ACCESS_KEY
-```
-Then trigger either one manually any time:
-```bash
-gh workflow run smoke-test.yml
-gh workflow run scheduled-browserstack-run.yml
-```
+Restoring CI is almost entirely a config change, not a rewrite: either a paid
+BrowserStack plan (or a fresh trial under different credentials) plus re-adding the
+two workflow files from git history, or pointing the same `UseXyz` capability pattern
+at a different device cloud (Sauce Labs, etc. — see Future Improvements).
 
 ## What Wasn't Implemented / Limitations
 
-- **The local-emulator suite specifically doesn't run in CI.** Running an Android
-  emulator reliably on GitHub-hosted runners (KVM/nested virtualization, cold-boot
-  time, flakiness) is real, separate work. The BrowserStack path is the CI-friendly
-  substitute, and it does run on every push/PR (`smoke-test.yml`) - just a 4-test
-  subset there, not the full 32 (that's the daily tier).
+- **There is no CI at all right now.** A working BrowserStack-backed CI pipeline
+  existed and ran successfully during development (see Decisions and the report
+  history on GitHub Pages) until the free trial's App Automate minutes were fully
+  exhausted; the workflows were removed rather than left permanently failing. Running
+  an Android emulator directly on GitHub-hosted runners (KVM/nested virtualization,
+  cold-boot time, flakiness) is real, separate work that was never attempted, since
+  BrowserStack was the CI-friendly substitute for exactly that problem.
 - **Single device profile.** Everything is validated against one AVD (Pixel 8 / API
   35) locally, and one device config (Google Pixel 8 / Android 14) on BrowserStack. No
   device farm, no matrix of screen sizes/OS versions.
@@ -502,20 +483,19 @@ gh workflow run scheduled-browserstack-run.yml
 - **Allure result writing bypasses `Allure.NUnit`'s attribute pipeline** (see
   Decisions) — same report output, but if `Allure.NUnit` fixes the underlying
   container bug in a future release, this could likely be simplified back.
-- **The full 32-test suite only runs once a day, not on every PR** (see Decisions) —
-  a deliberate choice given trial-account quota limits, not an oversight. The 4-test
-  smoke tier covers every push/PR instead.
-- **GitHub disables scheduled workflows after 60 days without repository activity** —
-  a documented GitHub Actions limitation affecting the daily tier specifically.
+- **GitHub Pages is currently frozen on its last real CI run** — with no workflow
+  publishing to it anymore, the live report reflects the last BrowserStack execution
+  before the trial ran out, not the current state of the code (which is verified
+  locally instead — see How to Run).
 
 ## Future Improvements
 
-- **Run the full 32-test suite on every PR**, not just once a day — once a
-  higher-capacity BrowserStack plan removes the quota concern, `scheduled-browserstack-run.yml`
-  could also trigger on `pull_request`.
-- **Sauce Labs / other device clouds** — `DriverFactory`'s BrowserStack branch is a
-  template for this; the same `UseXyz` + vendor-capability pattern applies to any
-  other cloud grid.
+- **Restore CI** — either a paid BrowserStack plan (or a fresh trial) plus re-adding
+  the two removed workflow files from git history, or pointing the same `UseXyz`
+  capability pattern at a different device cloud (Sauce Labs, etc.) — see Decisions
+  for why it was removed and what already exists to build back on.
+- **Run the full 32-test suite on every PR**, not just once a day, once CI is
+  restored and a higher-capacity plan removes the quota concern.
 - **Parallel execution** — fixtures are already independent (unique users, no shared
   state), so enabling NUnit's parallelism should be low-risk once the
   one-Appium-server-per-run assumption is revisited (a grid can host multiple
